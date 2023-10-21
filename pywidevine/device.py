@@ -10,7 +10,7 @@ from construct import BitStruct, Bytes, Const, ConstructError, Container
 from construct import Enum as CEnum
 from construct import Int8ub, Int16ub
 from construct import Optional as COptional
-from construct import Padded, Padding, Struct, this
+from construct import Padding, Struct, this
 from Crypto.PublicKey import RSA
 from google.protobuf.message import DecodeError
 
@@ -82,7 +82,7 @@ class Device:
         type_: Types,
         security_level: int,
         flags: Optional[dict],
-        private_key: Optional[bytes],
+        private_key: Optional[bytes | str],
         client_id: Optional[bytes],
         **__: Any
     ):
