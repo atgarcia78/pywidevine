@@ -88,21 +88,23 @@ class PSSH:
                     if cenc_header != data:  # not actually a WidevinePsshData
                         raise DecodeError()
                     box = Box.parse(Box.build(dict(
-                        type=b"pssh",
-                        version=0,
-                        flags=0,
-                        system_ID=PSSH.SystemId.Widevine,
-                        init_data=cenc_header
+                        type="pssh",
+                        data=dict(
+                            version=0,
+                            flags=0,
+                            system_ID=PSSH.SystemId.Widevine,
+                            init_data=cenc_header)
                     )))
                 except DecodeError:  # not a widevine cenc header
                     if "</WRMHEADER>".encode("utf-16-le") in data:
                         # TODO: Actually parse `data` as a PlayReadyHeader object and store that instead
                         box = Box.parse(Box.build(dict(
-                            type=b"pssh",
-                            version=0,
-                            flags=0,
-                            system_ID=PSSH.SystemId.PlayReady,
-                            init_data=data
+                            type="pssh",
+                            data=dict(
+                                version=0,
+                                flags=0,
+                                system_ID=PSSH.SystemId.PlayReady,
+                                init_data=data)
                         )))
                     elif strict:
                         raise DecodeError(f"Could not parse data as a {Container} nor a {WidevinePsshData}.")
@@ -111,18 +113,19 @@ class PSSH:
                         # The license server likely has something custom to parse it.
                         # See doc-string about Lenient mode for more information.
                         box = Box.parse(Box.build(dict(
-                            type=b"pssh",
-                            version=0,
-                            flags=0,
-                            system_ID=PSSH.SystemId.Widevine,
-                            init_data=data
+                            type="pssh",
+                            data=dict(
+                                version=0,
+                                flags=0,
+                                system_ID=PSSH.SystemId.Widevine,
+                                init_data=data)
                         )))
 
-        self.version = box.version
-        self.flags = box.flags
-        self.system_id = box.system_ID
-        self.__key_ids = box.key_IDs
-        self.init_data = box.init_data
+        self.version = box.data.version
+        self.flags = box.data.flags
+        self.system_id = box.data.system_ID
+        self.__key_ids = box.data.key_IDs
+        self.init_data = box.data.init_data
 
     def __repr__(self) -> str:
         return f"PSSH<{self.system_id}>(v{self.version}; {self.flags}, {self.key_ids}, {self.init_data})"
@@ -203,12 +206,14 @@ class PSSH:
                 )
 
         pssh = cls(Box.parse(Box.build(dict(
-            type=b"pssh",
-            version=version,
-            flags=flags,
-            system_ID=system_id,
-            init_data=[init_data, b""][init_data is None]
-            # key_IDs should not be set yet
+            type="pssh",
+            data=dict(
+                version=version,
+                flags=flags,
+                system_ID=system_id,
+                init_data=[init_data, b""][init_data is None],
+                # key_IDs should not be set yet
+            )
         ))))
 
         if key_ids:
@@ -216,8 +221,8 @@ class PSSH:
             # The set_key_ids() func will set it efficiently in both init_data and the box where needed.
             # The version must be reinforced ONLY if we have key_id data or there's a possibility of making
             # a v1 PSSH box, that did not have key_IDs set in the PSSH box.
-            pssh.version = version
-            pssh.set_key_ids(key_ids)
+            pssh.data.version = version
+            pssh.data.set_key_ids(key_ids)
 
         return pssh
 
@@ -302,12 +307,13 @@ class PSSH:
     def dump(self) -> bytes:
         """Export the PSSH object as a full PSSH box in bytes form."""
         return Box.build(dict(
-            type=b"pssh",
-            version=self.version,
-            flags=self.flags,
-            system_ID=self.system_id,
-            key_IDs=self.key_ids if self.version == 1 and self.key_ids else None,
-            init_data=self.init_data
+            type="pssh",
+            data=dict(
+                version=self.version,
+                flags=self.flags,
+                system_ID=self.system_id,
+                key_IDs=self.key_ids if self.version == 1 and self.key_ids else None,
+                init_data=self.init_data)
         ))
 
     def dumps(self) -> str:

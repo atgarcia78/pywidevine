@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from enum import Enum
+from enum import IntEnum
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -17,7 +17,7 @@ from google.protobuf.message import DecodeError
 from pywidevine.license_protocol_pb2 import ClientIdentification, DrmCertificate, FileHashes, SignedDrmCertificate
 
 
-class _Types(Enum):
+class _Types(IntEnum):
     CHROME = 1
     ANDROID = 2
 
@@ -33,13 +33,13 @@ class _Structures:
     # - Removed vmp and vmp_len as it should already be within the Client ID
     v2 = Struct(
         "signature" / magic,
-        "version" / Const(Int8ub, 2),
+        "version" / Const(2, Int8ub),
         "type_" / CEnum(
             Int8ub,
             **{t.name: t.value for t in _Types}
         ),
         "security_level" / Int8ub,
-        "flags" / Padded(1, COptional(BitStruct(
+        "flags" / BitStruct(Padding(1), COptional(BitStruct(
             # no per-device flags yet
             Padding(8)
         ))),
@@ -52,13 +52,13 @@ class _Structures:
     # - Removed system_id as it can be retrieved from the Client ID's DRM Certificate
     v1 = Struct(
         "signature" / magic,
-        "version" / Const(Int8ub, 1),
+        "version" / Const(1, Int8ub),
         "type_" / CEnum(
             Int8ub,
             **{t.name: t.value for t in _Types}
         ),
         "security_level" / Int8ub,
-        "flags" / Padded(1, COptional(BitStruct(
+        "flags" / BitStruct(Padding(1), COptional(BitStruct(
             # no per-device flags yet
             Padding(8)
         ))),
