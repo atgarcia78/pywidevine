@@ -82,18 +82,17 @@ class PSSH:
                 box = Box.parse(data)
             except (IOError, construct.ConstructError):  # not a box
                 try:
-                    cenc_header = WidevinePsshData()
-                    cenc_header.ParseFromString(data)
-                    cenc_header = cenc_header.SerializeToString()
-                    if cenc_header != data:  # not actually a WidevinePsshData
+                    widevine_pssh_data = WidevinePsshData()
+                    widevine_pssh_data.ParseFromString(data)
+                    data_serialized = widevine_pssh_data.SerializeToString()
+                    if data_serialized != data:  # not actually a WidevinePsshData
                         raise DecodeError()
                     box = Box.parse(Box.build(dict(
-                        type="pssh",
-                        data=dict(
-                            version=0,
-                            flags=0,
-                            system_ID=PSSH.SystemId.Widevine,
-                            init_data=cenc_header)
+                        type=b"pssh",
+                        version=0,
+                        flags=0,
+                        system_ID=PSSH.SystemId.Widevine,
+                        init_data=data_serialized
                     )))
                 except DecodeError:  # not a widevine cenc header
                     if "</WRMHEADER>".encode("utf-16-le") in data:
@@ -172,25 +171,6 @@ class PSSH:
             #       So for now I will just make sure at least one is supplied
             if init_data is None and key_ids is None:
                 raise ValueError("Version 1 PSSH boxes must use either init_data or key_ids but neither were provided")
-
-        if key_ids is not None:
-            # ensure key_ids are UUID, supports hex, base64, and bytes
-            if not all(isinstance(x, (UUID, bytes, str)) for x in key_ids):
-                not_bytes = [x for x in key_ids if not isinstance(x, (UUID, bytes, str))]
-                raise TypeError(
-                    "Expected all of key_ids to be a UUID, hex, base64, or bytes, but one or more are not, "
-                    f"{not_bytes!r}"
-                )
-            key_ids = [
-                UUID(bytes=key_id_b)
-                for key_id in key_ids
-                for key_id_b in [
-                    key_id.bytes if isinstance(key_id, UUID) else
-                    bytes.fromhex(key_id) if all(c in string.hexdigits for c in key_id) else
-                    base64.b64decode(key_id) if isinstance(key_id, str) else
-                    key_id
-                ]
-            ]
 
         if init_data is not None:
             if isinstance(init_data, WidevinePsshData):
@@ -278,10 +258,11 @@ class PSSH:
                     key_ids = [
                         x.text
                         for x in prr_header.findall("./wrm:DATA/wrm:KID", wrm_ns)
+                        if x.text
                     ]
                 elif prr_header_version == "4.1.0.0":
                     key_ids = [
-                        x.get("VALUE")
+                        x.attrib["VALUE"]
                         for x in prr_header.findall("./wrm:DATA/wrm:PROTECTINFO/wrm:KID", wrm_ns)
                     ]
                 elif prr_header_version in ("4.2.0.0", "4.3.0.0"):
@@ -289,7 +270,7 @@ class PSSH:
                     #       This is because some Key IDs can be AES-CTR while some are AES-CBC.
                     #       Conversion to WidevineCencHeader could use this information.
                     key_ids = [
-                        x.get("VALUE")
+                        x.attrib["VALUE"]
                         for x in prr_header.findall("./wrm:DATA/wrm:PROTECTINFO/wrm:KIDS/wrm:KID", wrm_ns)
                     ]
                 else:
@@ -331,16 +312,17 @@ class PSSH:
         if self.system_id == PSSH.SystemId.Widevine:
             raise ValueError("This is already a Widevine PSSH")
 
-        cenc_header = WidevinePsshData()
-        cenc_header.algorithm = 1  # 0=Clear, 1=AES-CTR
-        cenc_header.key_ids[:] = [x.bytes for x in self.key_ids]
+        widevine_pssh_data = WidevinePsshData(
+            key_ids=[x.bytes for x in self.key_ids],
+            algorithm="AESCTR"
+        )
 
         if self.version == 1:
             # ensure both cenc header and box has same Key IDs
             # v1 uses both this and within init data for basically no reason
             self.__key_ids = self.key_ids
 
-        self.init_data = cenc_header.SerializeToString()
+        self.init_data = widevine_pssh_data.SerializeToString()
         self.system_id = PSSH.SystemId.Widevine
 
     def to_playready(
@@ -391,11 +373,11 @@ class PSSH:
                 <PROTECTINFO>
                     <KIDS>{key_ids_xml}</KIDS>
                 </PROTECTINFO>
-                {f'<LA_URL>%s</LA_URL>' % la_url if la_url else ''}
-                {f'<LUI_URL>%s</LUI_URL>' % lui_url if lui_url else ''}
-                {f'<DS_ID>%s</DS_ID>' % base64.b64encode(ds_id).decode() if ds_id else ''}
-                {f'<DECRYPTORSETUP>%s</DECRYPTORSETUP>' % decryptor_setup if decryptor_setup else ''}
-                {f'<CUSTOMATTRIBUTES xmlns="">%s</CUSTOMATTRIBUTES>' % custom_data if custom_data else ''}
+                {'<LA_URL>%s</LA_URL>' % la_url if la_url else ''}
+                {'<LUI_URL>%s</LUI_URL>' % lui_url if lui_url else ''}
+                {'<DS_ID>%s</DS_ID>' % base64.b64encode(ds_id).decode() if ds_id else ''}
+                {'<DECRYPTORSETUP>%s</DECRYPTORSETUP>' % decryptor_setup if decryptor_setup else ''}
+                {'<CUSTOMATTRIBUTES xmlns="">%s</CUSTOMATTRIBUTES>' % custom_data if custom_data else ''}
             </DATA>
         </WRMHEADER>
         """.encode("utf-16-le")
@@ -409,30 +391,57 @@ class PSSH:
         self.init_data = pro
         self.system_id = PSSH.SystemId.PlayReady
 
-    def set_key_ids(self, key_ids: list[UUID]) -> None:
+    def set_key_ids(self, key_ids: list[Union[UUID, str, bytes]]) -> None:
         """Overwrite all Key IDs with the specified Key IDs."""
         if self.system_id != PSSH.SystemId.Widevine:
             # TODO: Add support for setting the Key IDs in a PlayReady Header
             raise ValueError(f"Only Widevine PSSH Boxes are supported, not {self.system_id}.")
 
-        if not isinstance(key_ids, list):
-            raise TypeError(f"Expecting key_ids to be a list, not {key_ids!r}")
-
-        if not all(isinstance(x, UUID) for x in key_ids):
-            not_uuid = [x for x in key_ids if not isinstance(x, UUID)]
-            raise TypeError(f"All Key IDs in key_ids must be a {UUID}, not {not_uuid}")
+        key_id_uuids = self.parse_key_ids(key_ids)
 
         if self.version == 1 or self.__key_ids:
             # only use v1 box key_ids if version is 1, or it's already being used
             # this is in case the service stupidly expects it for version 0
-            self.__key_ids = key_ids
+            self.__key_ids = key_id_uuids
 
         cenc_header = WidevinePsshData()
         cenc_header.ParseFromString(self.init_data)
 
         cenc_header.key_ids[:] = [
             key_id.bytes
-            for key_id in key_ids
+            for key_id in key_id_uuids
         ]
 
         self.init_data = cenc_header.SerializeToString()
+
+    @staticmethod
+    def parse_key_ids(key_ids: list[Union[UUID, str, bytes]]) -> list[UUID]:
+        """
+        Parse a list of Key IDs in hex, base64, or bytes to UUIDs.
+
+        Raises TypeError if `key_ids` is not a list, or the list contains one
+        or more items that are not a UUID, str, or bytes object.
+        """
+        if not isinstance(key_ids, list):
+            raise TypeError(f"Expected key_ids to be a list, not {key_ids!r}")
+
+        if not all(isinstance(x, (UUID, str, bytes)) for x in key_ids):
+            raise TypeError("Some items of key_ids are not a UUID, str, or bytes. Unsure how to continue...")
+
+        uuids = [
+            UUID(bytes=key_id_b)
+            for key_id in key_ids
+            for key_id_b in [
+                key_id.bytes if isinstance(key_id, UUID) else
+                (
+                    bytes.fromhex(key_id) if all(c in string.hexdigits for c in key_id) else
+                    base64.b64decode(key_id)
+                ) if isinstance(key_id, str) else
+                key_id
+            ]
+        ]
+
+        return uuids
+
+
+__all__ = ("PSSH",)

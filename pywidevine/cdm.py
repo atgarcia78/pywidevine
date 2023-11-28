@@ -18,35 +18,47 @@ from Crypto.Signature import pss
 from Crypto.Util import Padding
 from google.protobuf.message import DecodeError
 
-from pywidevine.device import Device
+from pywidevine.device import Device, DeviceTypes
 from pywidevine.exceptions import (InvalidContext, InvalidInitData, InvalidLicenseMessage, InvalidLicenseType,
                                    InvalidSession, NoKeysLoaded, SignatureMismatch, TooManySessions)
 from pywidevine.key import Key
 from pywidevine.license_protocol_pb2 import (ClientIdentification, DrmCertificate, EncryptedClientIdentification,
-                                             License, LicenseRequest, LicenseType, ProtocolVersion,
-                                             SignedDrmCertificate, SignedMessage)
+                                             License, LicenseRequest, LicenseType, SignedDrmCertificate,
+                                             SignedMessage)
 from pywidevine.pssh import PSSH
 from pywidevine.session import Session
 from pywidevine.utils import get_binary_path
 
 
 class Cdm:
-    system_id = b"\xed\xef\x8b\xa9\x79\xd6\x4a\xce\xa3\xc8\x27\xdc\xd5\x1d\x21\xed"
-    uuid = UUID(bytes=system_id)
+    uuid = UUID(bytes=b"\xed\xef\x8b\xa9\x79\xd6\x4a\xce\xa3\xc8\x27\xdc\xd5\x1d\x21\xed")
     urn = f"urn:uuid:{uuid}"
     key_format = urn
     service_certificate_challenge = b"\x08\x04"
-    common_privacy_cert = ("CAUSxwUKwQIIAxIQFwW5F8wSBIaLBjM6L3cqjBiCtIKSBSKOAjCCAQoCggEBAJntWzsyfateJO/DtiqVtZhSCtW8y"
-                           "zdQPgZFuBTYdrjfQFEEQa2M462xG7iMTnJaXkqeB5UpHVhYQCOn4a8OOKkSeTkwCGELbxWMh4x+Ib/7/up34QGeHl"
-                           "eB6KRfRiY9FOYOgFioYHrc4E+shFexN6jWfM3rM3BdmDoh+07svUoQykdJDKR+ql1DghjduvHK3jOS8T1v+2RC/TH"
-                           "hv0CwxgTRxLpMlSCkv5fuvWCSmvzu9Vu69WTi0Ods18Vcc6CCuZYSC4NZ7c4kcHCCaA1vZ8bYLErF8xNEkKdO7Dev"
-                           "Sy8BDFnoKEPiWC8La59dsPxebt9k+9MItHEbzxJQAZyfWgkCAwEAAToUbGljZW5zZS53aWRldmluZS5jb20SgAOuN"
-                           "HMUtag1KX8nE4j7e7jLUnfSSYI83dHaMLkzOVEes8y96gS5RLknwSE0bv296snUE5F+bsF2oQQ4RgpQO8GVK5uk5M"
-                           "4PxL/CCpgIqq9L/NGcHc/N9XTMrCjRtBBBbPneiAQwHL2zNMr80NQJeEI6ZC5UYT3wr8+WykqSSdhV5Cs6cD7xdn9"
-                           "qm9Nta/gr52u/DLpP3lnSq8x2/rZCR7hcQx+8pSJmthn8NpeVQ/ypy727+voOGlXnVaPHvOZV+WRvWCq5z3CqCLl5"
-                           "+Gf2Ogsrf9s2LFvE7NVV2FvKqcWTw4PIV9Sdqrd+QLeFHd/SSZiAjjWyWOddeOrAyhb3BHMEwg2T7eTo/xxvF+YkP"
-                           "j89qPwXCYcOxF+6gjomPwzvofcJOxkJkoMmMzcFBDopvab5tDQsyN9UPLGhGC98X/8z8QSQ+spbJTYLdgFenFoGq4"
-                           "7gLwDS6NWYYQSqzE3Udf2W7pzk4ybyG4PHBYV3s4cyzdq8amvtE/sNSdOKReuHpfQ=")
+    common_privacy_cert = (
+        # Used by Google's production license server (license.google.com)
+        # Not publicly accessible directly, but a lot of services have their own gateways to it
+        "CAUSxwUKwQIIAxIQFwW5F8wSBIaLBjM6L3cqjBiCtIKSBSKOAjCCAQoCggEBAJntWzsyfateJO/DtiqVtZhSCtW8yzdQPgZFuBTYdrjfQFEE"
+        "Qa2M462xG7iMTnJaXkqeB5UpHVhYQCOn4a8OOKkSeTkwCGELbxWMh4x+Ib/7/up34QGeHleB6KRfRiY9FOYOgFioYHrc4E+shFexN6jWfM3r"
+        "M3BdmDoh+07svUoQykdJDKR+ql1DghjduvHK3jOS8T1v+2RC/THhv0CwxgTRxLpMlSCkv5fuvWCSmvzu9Vu69WTi0Ods18Vcc6CCuZYSC4NZ"
+        "7c4kcHCCaA1vZ8bYLErF8xNEkKdO7DevSy8BDFnoKEPiWC8La59dsPxebt9k+9MItHEbzxJQAZyfWgkCAwEAAToUbGljZW5zZS53aWRldmlu"
+        "ZS5jb20SgAOuNHMUtag1KX8nE4j7e7jLUnfSSYI83dHaMLkzOVEes8y96gS5RLknwSE0bv296snUE5F+bsF2oQQ4RgpQO8GVK5uk5M4PxL/C"
+        "CpgIqq9L/NGcHc/N9XTMrCjRtBBBbPneiAQwHL2zNMr80NQJeEI6ZC5UYT3wr8+WykqSSdhV5Cs6cD7xdn9qm9Nta/gr52u/DLpP3lnSq8x2"
+        "/rZCR7hcQx+8pSJmthn8NpeVQ/ypy727+voOGlXnVaPHvOZV+WRvWCq5z3CqCLl5+Gf2Ogsrf9s2LFvE7NVV2FvKqcWTw4PIV9Sdqrd+QLeF"
+        "Hd/SSZiAjjWyWOddeOrAyhb3BHMEwg2T7eTo/xxvF+YkPj89qPwXCYcOxF+6gjomPwzvofcJOxkJkoMmMzcFBDopvab5tDQsyN9UPLGhGC98"
+        "X/8z8QSQ+spbJTYLdgFenFoGq47gLwDS6NWYYQSqzE3Udf2W7pzk4ybyG4PHBYV3s4cyzdq8amvtE/sNSdOKReuHpfQ=")
+    staging_privacy_cert = (
+        # Used by Google's staging license server (staging.google.com)
+        # This can be publicly accessed without authentication using https://cwip-shaka-proxy.appspot.com/no_auth
+        "CAUSxQUKvwIIAxIQKHA0VMAI9jYYredEPbbEyBiL5/mQBSKOAjCCAQoCggEBALUhErjQXQI/zF2V4sJRwcZJtBd82NK+7zVbsGdD3mYePSq8"
+        "MYK3mUbVX9wI3+lUB4FemmJ0syKix/XgZ7tfCsB6idRa6pSyUW8HW2bvgR0NJuG5priU8rmFeWKqFxxPZmMNPkxgJxiJf14e+baq9a1Nuip+"
+        "FBdt8TSh0xhbWiGKwFpMQfCB7/+Ao6BAxQsJu8dA7tzY8U1nWpGYD5LKfdxkagatrVEB90oOSYzAHwBTK6wheFC9kF6QkjZWt9/v70JIZ2fz"
+        "PvYoPU9CVKtyWJOQvuVYCPHWaAgNRdiTwryi901goMDQoJk87wFgRwMzTDY4E5SGvJ2vJP1noH+a2UMCAwEAAToSc3RhZ2luZy5nb29nbGUu"
+        "Y29tEoADmD4wNSZ19AunFfwkm9rl1KxySaJmZSHkNlVzlSlyH/iA4KrvxeJ7yYDa6tq/P8OG0ISgLIJTeEjMdT/0l7ARp9qXeIoA4qprhM19"
+        "ccB6SOv2FgLMpaPzIDCnKVww2pFbkdwYubyVk7jei7UPDe3BKTi46eA5zd4Y+oLoG7AyYw/pVdhaVmzhVDAL9tTBvRJpZjVrKH1lexjOY9Dv"
+        "1F/FJp6X6rEctWPlVkOyb/SfEJwhAa/K81uDLyiPDZ1Flg4lnoX7XSTb0s+Cdkxd2b9yfvvpyGH4aTIfat4YkF9Nkvmm2mU224R1hx0WjocL"
+        "sjA89wxul4TJPS3oRa2CYr5+DU4uSgdZzvgtEJ0lksckKfjAF0K64rPeytvDPD5fS69eFuy3Tq26/LfGcF96njtvOUA4P5xRFtICogySKe6W"
+        "nCUZcYMDtQ0BMMM1LgawFNg4VA+KDCJ8ABHg9bOOTimO0sswHrRWSWX1XF15dXolCk65yEqz5lOfa2/fVomeopkU")
     root_signed_cert = SignedDrmCertificate()
     root_signed_cert.ParseFromString(base64.b64decode(
         "CpwDCAASAQAY3ZSIiwUijgMwggGKAoIBgQC0/jnDZZAD2zwRlwnoaM3yw16b8udNI7EQ24dl39z7nzWgVwNTTPZtNX2meNuzNtI/nECplSZy"
@@ -67,7 +79,7 @@ class Cdm:
 
     def __init__(
         self,
-        device_type: Union[Device.Types, str],
+        device_type: Union[DeviceTypes, str],
         system_id: int,
         security_level: int,
         client_id: ClientIdentification,
@@ -77,9 +89,9 @@ class Cdm:
         if not device_type:
             raise ValueError("Device Type must be provided")
         if isinstance(device_type, str):
-            device_type = Device.Types[device_type]
-        if not isinstance(device_type, Device.Types):
-            raise TypeError(f"Expected device_type to be a {Device.Types!r} not {device_type!r}")
+            device_type = DeviceTypes[device_type]
+        if not isinstance(device_type, DeviceTypes):
+            raise TypeError(f"Expected device_type to be a {DeviceTypes!r} not {device_type!r}")
 
         if not system_id:
             raise ValueError("System ID must be provided")
@@ -152,7 +164,7 @@ class Cdm:
             raise InvalidSession(f"Session identifier {session_id!r} is invalid.")
         del self.__sessions[session_id]
 
-    def set_service_certificate(self, session_id: bytes, certificate: Optional[Union[bytes, str]]) -> str:
+    def set_service_certificate(self, session_id: bytes, certificate: Optional[Union[bytes, str]]) -> Optional[str]:
         """
         Set a Service Privacy Certificate for Privacy Mode. (optional but recommended)
 
@@ -179,7 +191,8 @@ class Cdm:
                 match the underlying DrmCertificate.
 
         Returns the Service Provider ID of the verified DrmCertificate if successful.
-        If certificate is None, it will return the now unset certificate's Provider ID.
+        If certificate is None, it will return the now-unset certificate's Provider ID,
+        or None if no certificate was set yet.
         """
         session = self.__sessions.get(session_id)
         if not session:
@@ -263,7 +276,7 @@ class Cdm:
         self,
         session_id: bytes,
         pssh: PSSH,
-        type_: Union[int, str] = LicenseType.STREAMING,
+        license_type: str = "STREAMING",
         privacy_mode: bool = True
     ) -> bytes:
         """
@@ -272,8 +285,10 @@ class Cdm:
         Parameters:
             session_id: Session identifier.
             pssh: PSSH Object to get the init data from.
-            type_: Type of License you wish to exchange, often `STREAMING`. The `OFFLINE`
-                Licenses are for Offline licensing of Downloaded content.
+            license_type: Type of License you wish to exchange, often `STREAMING`.
+                - "STREAMING": Normal one-time-use license.
+                - "OFFLINE": Offline-use licence, usually for Downloaded content.
+                - "AUTOMATIC": License type decision is left to provider.
             privacy_mode: Encrypt the Client ID using the Privacy Certificate. If the
                 privacy certificate is not set yet, this does nothing.
 
@@ -296,17 +311,15 @@ class Cdm:
         if not isinstance(pssh, PSSH):
             raise InvalidInitData(f"Expected pssh to be a {PSSH}, not {pssh!r}")
 
-        try:
-            if isinstance(type_, int):
-                LicenseType.Name(int(type_))
-            elif isinstance(type_, str):
-                type_ = LicenseType.Value(type_)
-            elif not isinstance(type_, LicenseType):
-                raise InvalidLicenseType()
-        except ValueError:
-            raise InvalidLicenseType(f"License Type {type_!r} is invalid")
+        if not isinstance(license_type, str):
+            raise InvalidLicenseType(f"Expected license_type to be a {str}, not {license_type!r}")
+        if license_type not in LicenseType.keys():
+            raise InvalidLicenseType(
+                f"Invalid license_type value of '{license_type}'. "
+                f"Available values: {LicenseType.keys()}"
+            )
 
-        if self.device_type == Device.Types.ANDROID:
+        if self.device_type == DeviceTypes.ANDROID:
             # OEMCrypto's request_id seems to be in AES CTR Counter block form with no suffix
             # Bytes 5-8 does not seem random, in real tests they have been consecutive \x00 or \xFF
             # Real example: A0DCE548000000000500000000000000
@@ -318,35 +331,36 @@ class Cdm:
         else:
             request_id = get_random_bytes(16)
 
-        license_request = LicenseRequest()
-        license_request.type = LicenseRequest.RequestType.Value("NEW")
-        license_request.request_time = int(time.time())
-        license_request.protocol_version = ProtocolVersion.Value("VERSION_2_1")
-        license_request.key_control_nonce = random.randrange(1, 2 ** 31)
-
-        # pssh_data may be either a WidevineCencHeader or custom data
-        # we have to assume the pssh.init_data value is valid, we cannot test
-        license_request.content_id.widevine_pssh_data.pssh_data.append(pssh.init_data)
-        license_request.content_id.widevine_pssh_data.license_type = type_
-        license_request.content_id.widevine_pssh_data.request_id = request_id
-
-        if session.service_certificate and privacy_mode:
-            # encrypt the client id for privacy mode
-            license_request.encrypted_client_id.CopyFrom(self.encrypt_client_id(
+        license_request = LicenseRequest(
+            client_id=(
+                self.__client_id
+            ) if not (session.service_certificate and privacy_mode) else None,
+            encrypted_client_id=self.encrypt_client_id(
                 client_id=self.__client_id,
                 service_certificate=session.service_certificate
-            ))
-        else:
-            license_request.client_id.CopyFrom(self.__client_id)
+            ) if session.service_certificate and privacy_mode else None,
+            content_id=LicenseRequest.ContentIdentification(
+                widevine_pssh_data=LicenseRequest.ContentIdentification.WidevinePsshData(
+                    pssh_data=[pssh.init_data],  # either a WidevineCencHeader or custom data
+                    license_type=license_type,
+                    request_id=request_id
+                )
+            ),
+            type="NEW",
+            request_time=int(time.time()),
+            protocol_version="VERSION_2_1",
+            key_control_nonce=random.randrange(1, 2 ** 31),
+        ).SerializeToString()
 
-        license_message = SignedMessage()
-        license_message.type = SignedMessage.MessageType.LICENSE_REQUEST
-        license_message.msg = license_request.SerializeToString()
-        license_message.signature = self.__signer.sign(SHA1.new(license_message.msg))
+        signed_license_request = SignedMessage(
+            type="LICENSE_REQUEST",
+            msg=license_request,
+            signature=self.__signer.sign(SHA1.new(license_request))
+        ).SerializeToString()
 
-        session.context[request_id] = self.derive_context(license_message.msg)
+        session.context[request_id] = self.derive_context(license_request)
 
-        return license_message.SerializeToString()
+        return signed_license_request
 
     def parse_license(self, session_id: bytes, license_message: Union[SignedMessage, bytes, str]) -> None:
         """
@@ -396,7 +410,7 @@ class Cdm:
         if not isinstance(license_message, SignedMessage):
             raise InvalidLicenseMessage(f"Expecting license_response to be a SignedMessage, got {license_message!r}")
 
-        if license_message.type != SignedMessage.MessageType.LICENSE:
+        if license_message.type != SignedMessage.MessageType.Value("LICENSE"):
             raise InvalidLicenseMessage(
                 f"Expecting a LICENSE message, not a "
                 f"'{SignedMessage.MessageType.Name(license_message.type)}' message."
@@ -475,7 +489,7 @@ class Cdm:
         output_file: Union[Path, str],
         temp_dir: Optional[Union[Path, str]] = None,
         exists_ok: bool = False
-    ):
+    ) -> int:
         """
         Decrypt a Widevine-encrypted file using Shaka-packager.
         Shaka-packager is much more stable than mp4decrypt.
@@ -512,8 +526,7 @@ class Cdm:
 
         input_file = Path(input_file)
         output_file = Path(output_file)
-        if temp_dir:
-            temp_dir = Path(temp_dir)
+        temp_dir_ = Path(temp_dir) if temp_dir else None
 
         if not input_file.is_file():
             raise FileNotFoundError(f"Input file does not exist, {input_file}")
@@ -547,18 +560,18 @@ class Cdm:
             ])
         ]
 
-        if temp_dir:
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            args.extend(["--temp_dir", temp_dir])
+        if temp_dir_:
+            temp_dir_.mkdir(parents=True, exist_ok=True)
+            args.extend(["--temp_dir", str(temp_dir_)])
 
-        subprocess.check_call([executable, *args])
+        return subprocess.check_call([executable, *args])
 
     @staticmethod
     def encrypt_client_id(
         client_id: ClientIdentification,
         service_certificate: Union[SignedDrmCertificate, DrmCertificate],
-        key: bytes = None,
-        iv: bytes = None
+        key: Optional[bytes] = None,
+        iv: Optional[bytes] = None
     ) -> EncryptedClientIdentification:
         """Encrypt the Client ID with the Service's Privacy Certificate."""
         privacy_key = key or get_random_bytes(16)
@@ -571,20 +584,19 @@ class Cdm:
         if not isinstance(service_certificate, DrmCertificate):
             raise ValueError(f"Expecting Service Certificate to be a DrmCertificate, not {service_certificate!r}")
 
-        enc_client_id = EncryptedClientIdentification()
-        enc_client_id.provider_id = service_certificate.provider_id
-        enc_client_id.service_certificate_serial_number = service_certificate.serial_number
-
-        enc_client_id.encrypted_client_id = AES. \
-            new(privacy_key, AES.MODE_CBC, privacy_iv). \
-            encrypt(Padding.pad(client_id.SerializeToString(), 16))
-
-        enc_client_id.encrypted_privacy_key = PKCS1_OAEP. \
-            new(RSA.importKey(service_certificate.public_key)). \
+        encrypted_client_id = EncryptedClientIdentification(
+            provider_id=service_certificate.provider_id,
+            service_certificate_serial_number=service_certificate.serial_number,
+            encrypted_client_id=AES.
+            new(privacy_key, AES.MODE_CBC, privacy_iv).
+            encrypt(Padding.pad(client_id.SerializeToString(), 16)),
+            encrypted_client_id_iv=privacy_iv,
+            encrypted_privacy_key=PKCS1_OAEP.
+            new(RSA.importKey(service_certificate.public_key)).
             encrypt(privacy_key)
-        enc_client_id.encrypted_client_id_iv = privacy_iv
+        )
 
-        return enc_client_id
+        return encrypted_client_id
 
     @staticmethod
     def derive_context(message: bytes) -> tuple[bytes, bytes]:
@@ -639,4 +651,4 @@ class Cdm:
         return enc_key, mac_key_server, mac_key_client
 
 
-__ALL__ = (Cdm,)
+__all__ = ("Cdm",)

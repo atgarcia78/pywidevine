@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import logging
-from enum import IntEnum
+from enum import Enum
 from pathlib import Path
 from typing import Any, Optional, Union
 
@@ -14,10 +14,12 @@ from construct import Padding, Struct, this
 from Crypto.PublicKey import RSA
 from google.protobuf.message import DecodeError
 
-from pywidevine.license_protocol_pb2 import ClientIdentification, DrmCertificate, FileHashes, SignedDrmCertificate
+from pywidevine.license_protocol_pb2 import (ClientIdentification,
+                                             DrmCertificate, FileHashes,
+                                             SignedDrmCertificate)
 
 
-class _Types(IntEnum):
+class DeviceTypes(Enum):
     CHROME = 1
     ANDROID = 2
 
@@ -36,7 +38,7 @@ class _Structures:
         "version" / Const(2, Int8ub),
         "type_" / CEnum(
             Int8ub,
-            **{t.name: t.value for t in _Types}
+            **{t.name: t.value for t in DeviceTypes}
         ),
         "security_level" / Int8ub,
         "flags" / BitStruct(Padding(1), COptional(BitStruct(
@@ -55,7 +57,7 @@ class _Structures:
         "version" / Const(1, Int8ub),
         "type_" / CEnum(
             Int8ub,
-            **{t.name: t.value for t in _Types}
+            **{t.name: t.value for t in DeviceTypes}
         ),
         "security_level" / Int8ub,
         "flags" / BitStruct(Padding(1), COptional(BitStruct(
@@ -72,14 +74,13 @@ class _Structures:
 
 
 class Device:
-    Types = _Types
     Structures = _Structures
     supported_structure = Structures.v2
 
     def __init__(
         self,
         *_: Any,
-        type_: Types,
+        type_: DeviceTypes,
         security_level: int,
         flags: Optional[dict],
         private_key: Optional[bytes | str],
@@ -103,9 +104,9 @@ class Device:
         if not private_key:
             raise ValueError("Private Key is required, the WVD does not contain one or is malformed.")
 
-        self.type = self.Types[type_] if isinstance(type_, str) else type_
+        self.type = DeviceTypes[type_] if isinstance(type_, str) else type_
         self.security_level = security_level
-        self.flags = flags
+        self.flags = flags or {}
         self.private_key = RSA.importKey(private_key)
         self.client_id = ClientIdentification()
         try:
@@ -199,36 +200,36 @@ class Device:
             raise ValueError("Device Data does not seem to be a WVD file (v0).")
 
         if header.version == 1:  # v1 to v2
-            data = _Structures.v1.parse(data)
-            data.version = 2  # update version to 2 to allow loading
-            data.flags = Container()  # blank flags that may have been used in v1
+            v1_struct = _Structures.v1.parse(data)
+            v1_struct.version = 2  # update version to 2 to allow loading
+            v1_struct.flags = Container()  # blank flags that may have been used in v1
 
             vmp = FileHashes()
-            if data.vmp:
+            if v1_struct.vmp:
                 try:
-                    vmp.ParseFromString(data.vmp)
-                    if vmp.SerializeToString() != data.vmp:
+                    vmp.ParseFromString(v1_struct.vmp)
+                    if vmp.SerializeToString() != v1_struct.vmp:
                         raise DecodeError("partial parse")
                 except DecodeError as e:
                     raise DecodeError(f"Failed to parse VMP data as FileHashes, {e}")
-                data.vmp = vmp
+                v1_struct.vmp = vmp
 
                 client_id = ClientIdentification()
                 try:
-                    client_id.ParseFromString(data.client_id)
-                    if client_id.SerializeToString() != data.client_id:
+                    client_id.ParseFromString(v1_struct.client_id)
+                    if client_id.SerializeToString() != v1_struct.client_id:
                         raise DecodeError("partial parse")
                 except DecodeError as e:
                     raise DecodeError(f"Failed to parse VMP data as FileHashes, {e}")
 
-                new_vmp_data = data.vmp.SerializeToString()
+                new_vmp_data = v1_struct.vmp.SerializeToString()
                 if client_id.vmp_data and client_id.vmp_data != new_vmp_data:
                     logging.getLogger("migrate").warning("Client ID already has Verified Media Path data")
                 client_id.vmp_data = new_vmp_data
-                data.client_id = client_id.SerializeToString()
+                v1_struct.client_id = client_id.SerializeToString()
 
             try:
-                data = _Structures.v2.build(data)
+                data = _Structures.v2.build(v1_struct)
             except ConstructError as e:
                 raise ValueError(f"Migration failed, {e}")
 
@@ -238,4 +239,4 @@ class Device:
             raise ValueError(f"Device Data seems to be corrupt or invalid, or migration failed, {e}")
 
 
-__ALL__ = (Device,)
+__all__ = ("Device", "DeviceTypes")

@@ -12,7 +12,7 @@ from Crypto.Signature import pss
 from google.protobuf.message import DecodeError
 
 from pywidevine.cdm import Cdm
-from pywidevine.device import Device
+from pywidevine.device import Device, DeviceTypes
 from pywidevine.exceptions import (DeviceMismatch, InvalidInitData, InvalidLicenseMessage, InvalidLicenseType,
                                    SignatureMismatch)
 from pywidevine.key import Key
@@ -26,7 +26,7 @@ class RemoteCdm(Cdm):
 
     def __init__(
         self,
-        device_type: Union[Device.Types, str],
+        device_type: Union[DeviceTypes, str],
         system_id: int,
         security_level: int,
         host: str,
@@ -37,9 +37,9 @@ class RemoteCdm(Cdm):
         if not device_type:
             raise ValueError("Device Type must be provided")
         if isinstance(device_type, str):
-            device_type = Device.Types[device_type]
-        if not isinstance(device_type, Device.Types):
-            raise TypeError(f"Expected device_type to be a {Device.Types!r} not {device_type!r}")
+            device_type = DeviceTypes[device_type]
+        if not isinstance(device_type, DeviceTypes):
+            raise TypeError(f"Expected device_type to be a {DeviceTypes!r} not {device_type!r}")
 
         if not system_id:
             raise ValueError("System ID must be provided")
@@ -86,10 +86,10 @@ class RemoteCdm(Cdm):
         server = r.headers.get("Server")
         if not server or "pywidevine serve" not in server.lower():
             raise ValueError(f"This Remote CDM API does not seem to be a pywidevine serve API ({server}).")
-        server_version = re.search(r"pywidevine serve v([\d.]+)", server, re.IGNORECASE)
-        if not server_version:
+        server_version_re = re.search(r"pywidevine serve v([\d.]+)", server, re.IGNORECASE)
+        if not server_version_re:
             raise ValueError("The pywidevine server API is not stating the version correctly, cannot continue.")
-        server_version = server_version.group(1)
+        server_version = server_version_re.group(1)
         if server_version < "1.4.3":
             raise ValueError(f"This pywidevine serve API version ({server_version}) is not supported.")
 
@@ -185,7 +185,7 @@ class RemoteCdm(Cdm):
         self,
         session_id: bytes,
         pssh: PSSH,
-        type_: Union[int, str] = LicenseType.STREAMING,
+        license_type: str = "STREAMING",
         privacy_mode: bool = True
     ) -> bytes:
         if not pssh:
@@ -193,20 +193,16 @@ class RemoteCdm(Cdm):
         if not isinstance(pssh, PSSH):
             raise InvalidInitData(f"Expected pssh to be a {PSSH}, not {pssh!r}")
 
-        try:
-            if isinstance(type_, int):
-                type_ = LicenseType.Name(int(type_))
-            elif isinstance(type_, str):
-                type_ = LicenseType.Name(LicenseType.Value(type_))
-            elif isinstance(type_, LicenseType):
-                type_ = LicenseType.Name(type_)
-            else:
-                raise InvalidLicenseType()
-        except ValueError:
-            raise InvalidLicenseType(f"License Type {type_!r} is invalid")
+        if not isinstance(license_type, str):
+            raise InvalidLicenseType(f"Expected license_type to be a {str}, not {license_type!r}")
+        if license_type not in LicenseType.keys():
+            raise InvalidLicenseType(
+                f"Invalid license_type value of '{license_type}'. "
+                f"Available values: {LicenseType.keys()}"
+            )
 
         r = self.__session.post(
-            url=f"{self.host}/{self.device_name}/get_license_challenge/{type_}",
+            url=f"{self.host}/{self.device_name}/get_license_challenge/{license_type}",
             json={
                 "session_id": session_id.hex(),
                 "init_data": pssh.dumps(),
@@ -251,7 +247,7 @@ class RemoteCdm(Cdm):
         if not isinstance(license_message, SignedMessage):
             raise InvalidLicenseMessage(f"Expecting license_response to be a SignedMessage, got {license_message!r}")
 
-        if license_message.type != SignedMessage.MessageType.LICENSE:
+        if license_message.type != SignedMessage.MessageType.Value("LICENSE"):
             raise InvalidLicenseMessage(
                 f"Expecting a LICENSE message, not a "
                 f"'{SignedMessage.MessageType.Name(license_message.type)}' message."
@@ -301,4 +297,4 @@ class RemoteCdm(Cdm):
         ]
 
 
-__ALL__ = (RemoteCdm,)
+__all__ = ("RemoteCdm",)
