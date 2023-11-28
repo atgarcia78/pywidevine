@@ -9,7 +9,7 @@ description = "Widevine CDM (Content Decryption Module) implementation in Python
 authors = ["rlaphoenix <rlaphoenix@pm.me>"]
 license = "GPL-3.0-only"
 readme = "README.md"
-repository = "/Users/antoniotorres/Projects/pywidevine"
+repository = "https://github.com/atgarcia78"
 keywords = ["widevine", "drm", "google"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
