@@ -10,13 +10,11 @@ from construct import BitStruct, Bytes, Const, ConstructError, Container
 from construct import Enum as CEnum
 from construct import Int8ub, Int16ub
 from construct import Optional as COptional
-from construct import Padding, Struct, this
+from construct import Padded, Padding, Struct, this
 from Crypto.PublicKey import RSA
 from google.protobuf.message import DecodeError
 
-from pywidevine.license_protocol_pb2 import (ClientIdentification,
-                                             DrmCertificate, FileHashes,
-                                             SignedDrmCertificate)
+from pywidevine.license_protocol_pb2 import ClientIdentification, DrmCertificate, FileHashes, SignedDrmCertificate
 
 
 class DeviceTypes(Enum):
@@ -41,7 +39,7 @@ class _Structures:
             **{t.name: t.value for t in DeviceTypes}
         ),
         "security_level" / Int8ub,
-        "flags" / BitStruct(Padding(1), COptional(BitStruct(
+        "flags" / Padded(1, COptional(BitStruct(
             # no per-device flags yet
             Padding(8)
         ))),
@@ -60,7 +58,7 @@ class _Structures:
             **{t.name: t.value for t in DeviceTypes}
         ),
         "security_level" / Int8ub,
-        "flags" / BitStruct(Padding(1), COptional(BitStruct(
+        "flags" / Padded(1, COptional(BitStruct(
             # no per-device flags yet
             Padding(8)
         ))),
